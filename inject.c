@@ -166,6 +166,9 @@ uint32_t remote_syscall(pid_t pid, uint32_t eax, uint32_t ebx, uint32_t ecx, uin
 
 	// 0x2a855
 	// void *ret =  (void *)0x2a855 + 0xff1000;
+	// Lazy to rewrite the base logic of this, because there are edge cases, for example, if a program is sleeping
+	// it might be inside [vdso] that cannot be rewrite and syscalls from this memory region would be filtered/limited
+	// So hardcoding an address containing int 0x80 is the simplest way to avoid any edge case
 	void *ret =  (void *)0x0804888d;
 	if (ret == NULL)
 	{
@@ -370,6 +373,7 @@ int main(int argc, char *argv[])
 	if(flags & FLAGS_PROCESS)
 	{
 		// spawn new process
+		// Its the way to go to let the initial process continue its life
 		logs(LOG_DEGBUG, "starting new process");
 		ret_pid = remote_clone(pid, CLONE_PTRACE | CLONE_VM, stack_top);
 		logs(LOG_DEGBUG, "ret_pid: %d", ret_pid);
@@ -377,12 +381,15 @@ int main(int argc, char *argv[])
 	else
 	{
 		// spawn new thread
+		// careful, new thread will rewrite shared memory, hence, execve will trash the main process
 		logs(LOG_DEGBUG, "starting new thread");
-		ret_pid = remote_clone(pid, CLONE_PTRACE | CLONE_THREAD | CLONE_FS | CLONE_FILES, stack_top);
+		ret_pid = remote_clone(pid, CLONE_PTRACE | CLONE_VM | CLONE_SIGHAND | CLONE_FS | CLONE_FILES, stack_top);
 		logs(LOG_DEGBUG, "ret_pid: %d", ret_pid);
 	}
 
 	// getchar();
+	// For some reason, waitpid cannot target thread or does not work as intended on old systems. Sleep will counter that even
+	// if its definitivey not reliable or a clean way
 	sleep(3);
 
 	logs(LOG_DEGBUG, "running shellcode");
